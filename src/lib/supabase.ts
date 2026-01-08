@@ -81,8 +81,30 @@ export const testSupabaseConnection = async () => {
   }
 };
 
-// Testar conexão automaticamente em desenvolvimento
-if (import.meta.env.DEV) {
+// CORREÇÃO: Verificar se estamos em ambiente de desenvolvimento de forma segura
+// Usamos typeof para evitar erros de tipo no TypeScript
+const isDevEnvironment = () => {
+  // Verifica se import.meta está disponível (Vite/ES modules)
+  if (typeof import.meta !== 'undefined' && import.meta.env) {
+    return import.meta.env.DEV === true || import.meta.env.MODE === 'development';
+  }
+  
+  // Fallback para process.env (Node.js/Webpack)
+  if (typeof process !== 'undefined' && process.env) {
+    return process.env.NODE_ENV === 'development';
+  }
+  
+  // Fallback para variáveis globais do Vercel
+  if (typeof window !== 'undefined' && (window as any).__DEV__) {
+    return true;
+  }
+  
+  // Por padrão, não rodamos em produção
+  return false;
+};
+
+// Testar conexão automaticamente em desenvolvimento - AGORA COM VERIFICAÇÃO SEGURA
+if (isDevEnvironment()) {
   setTimeout(() => {
     testSupabaseConnection().then(result => {
       if (result.success) {
