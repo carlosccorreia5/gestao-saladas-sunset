@@ -12,6 +12,7 @@
     "@supabase/supabase-js": "^2.39.7",
     "@tanstack/react-query": "^5.90.12",
     "date-fns": "^2.30.0",
+    "file-saver": "^2.0.5",
     "jspdf": "^4.0.0",
     "jspdf-autotable": "^5.0.7",
     "lucide-react": "^0.309.0",
@@ -21,6 +22,7 @@
     "react-icons": "^5.5.0",
     "react-router-dom": "^6.20.1",
     "recharts": "^2.10.3",
+    "xlsx": "^0.18.5",
     "zod": "^4.2.1"
   },
   "devDependencies": {
