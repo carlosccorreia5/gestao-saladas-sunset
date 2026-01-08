@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import Header from '../common/Header';
-import { getSaladTypes, generateSequenceNumber } from '../../data/saladTypes';
+import { getSaladTypes } from '../../data/saladTypes'; // Removido generateSequenceNumber pois não é usado
 
 // Interfaces
 interface SaladType {
@@ -125,14 +125,20 @@ export default function ProductionDashboard() {
         setSelectedSaladType(saladTypesData[0].id);
       }
       
-      // 4. Buscar lojas
-      const { data: storesData } = await supabase
+      // 4. Buscar lojas - CORREÇÃO: Extrair .data e tratar erro
+      const { data: storesData, error: storesError } = await supabase
         .from('stores')
         .select('id, name')
         .order('name');
-      setStores(storesData || []);
-      if (storesData && storesData.length > 0) {
-        setSelectedStore(storesData[0].id);
+      
+      if (storesError) {
+        console.error('Erro ao buscar lojas:', storesError);
+        setStores([]);
+      } else {
+        setStores(storesData || []);
+        if (storesData && storesData.length > 0) {
+          setSelectedStore(storesData[0].id);
+        }
       }
       
       // 5. Buscar resumo do dashboard
@@ -187,40 +193,75 @@ export default function ProductionDashboard() {
       const today = new Date().toISOString().split('T')[0];
       
       // Buscar todos os tipos de salada
-      const { data: allSalads } = await supabase
+      const { data: allSalads, error: saladsError } = await supabase
         .from('salad_types')
         .select('id, name, emoji, color, sale_price');
+      
+      if (saladsError) {
+        console.error('Erro ao buscar tipos de salada:', saladsError);
+        return;
+      }
       
       if (!allSalads) return;
       
       const summary: DailySummary[] = [];
       
       for (const salad of allSalads) {
-        // Total solicitado hoje
-        const { data: requestedData } = await supabase
-          .from('production_items')
-          .select('quantity')
-          .eq('salad_type_id', salad.id)
-          .in('shipment_id', 
-            supabase.from('production_shipments')
-              .select('id')
-              .eq('status', 'pending')
-              .gte('created_at', `${today}T00:00:00`)
-              .lte('created_at', `${today}T23:59:59`)
-          );
+        // Primeiro buscar IDs dos shipments para hoje
+        const { data: shipments, error: shipmentsError } = await supabase
+          .from('production_shipments')
+          .select('id')
+          .eq('status', 'pending')
+          .gte('created_at', `${today}T00:00:00`)
+          .lte('created_at', `${today}T23:59:59`);
+        
+        if (shipmentsError) {
+          console.error('Erro ao buscar shipments:', shipmentsError);
+          continue;
+        }
+        
+        const shipmentIds = shipments?.map(s => s.id) || [];
+        
+        // Total solicitado hoje - CORREÇÃO: passar array de IDs em vez de query
+        const { data: requestedData, error: requestedError } = shipmentIds.length > 0 
+          ? await supabase
+              .from('production_items')
+              .select('quantity')
+              .eq('salad_type_id', salad.id)
+              .in('shipment_id', shipmentIds)
+          : { data: null, error: null };
+        
+        if (requestedError) {
+          console.error('Erro ao buscar itens solicitados:', requestedError);
+        }
         
         const totalRequested = requestedData?.reduce((sum, item) => sum + item.quantity, 0) || 0;
         
-        // Total produzido hoje
-        const { data: producedData } = await supabase
-          .from('delivery_items')
-          .select('quantity')
-          .eq('salad_type_id', salad.id)
-          .in('delivery_id',
-            supabase.from('production_deliveries')
-              .select('id')
-              .eq('production_date', today)
-          );
+        // Buscar IDs dos deliveries para hoje
+        const { data: deliveries, error: deliveriesError } = await supabase
+          .from('production_deliveries')
+          .select('id')
+          .eq('production_date', today);
+        
+        if (deliveriesError) {
+          console.error('Erro ao buscar deliveries:', deliveriesError);
+          continue;
+        }
+        
+        const deliveryIds = deliveries?.map(d => d.id) || [];
+        
+        // Total produzido hoje - CORREÇÃO: passar array de IDs em vez de query
+        const { data: producedData, error: producedError } = deliveryIds.length > 0
+          ? await supabase
+              .from('delivery_items')
+              .select('quantity')
+              .eq('salad_type_id', salad.id)
+              .in('delivery_id', deliveryIds)
+          : { data: null, error: null };
+        
+        if (producedError) {
+          console.error('Erro ao buscar itens produzidos:', producedError);
+        }
         
         const totalProduced = producedData?.reduce((sum, item) => sum + item.quantity, 0) || 0;
         
@@ -274,7 +315,7 @@ export default function ProductionDashboard() {
         const deliveriesWithItems: TodayDelivery[] = [];
         
         for (const delivery of deliveries) {
-          const { data: items } = await supabase
+          const { data: items, error: itemsError } = await supabase
             .from('delivery_items')
             .select(`
               id,
@@ -285,6 +326,11 @@ export default function ProductionDashboard() {
               salad_types!inner(name, emoji)
             `)
             .eq('delivery_id', delivery.id);
+          
+          if (itemsError) {
+            console.error('Erro ao buscar itens da entrega:', itemsError);
+            continue;
+          }
           
           deliveriesWithItems.push({
             id: delivery.id,
@@ -353,12 +399,17 @@ export default function ProductionDashboard() {
 
   const fetchLastDeliveryNumber = async () => {
     try {
-      const { data: lastDelivery } = await supabase
+      const { data: lastDelivery, error } = await supabase
         .from('production_deliveries')
         .select('delivery_number')
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
+      
+      if (error) {
+        console.error('Erro ao buscar número de entrega:', error);
+        return;
+      }
       
       if (lastDelivery?.delivery_number) {
         // Extrair número da sequência (últimos 4 dígitos)
@@ -545,11 +596,16 @@ export default function ProductionDashboard() {
   const updateExistingDelivery = async (deliveryId: string, store: DeliveryStore) => {
     try {
       // Buscar envio existente para atualizar totais
-      const { data: existingDelivery } = await supabase
+      const { data: existingDelivery, error: fetchError } = await supabase
         .from('production_deliveries')
         .select('total_items, total_value')
         .eq('id', deliveryId)
         .single();
+      
+      if (fetchError) {
+        console.error('Erro ao buscar envio existente:', fetchError);
+        throw fetchError;
+      }
       
       if (!existingDelivery) {
         throw new Error('Envio não encontrado');
@@ -571,7 +627,7 @@ export default function ProductionDashboard() {
       
       // Adicionar novos itens
       for (const item of store.items) {
-        await supabase
+        const { error: insertError } = await supabase
           .from('delivery_items')
           .insert({
             delivery_id: deliveryId,
@@ -580,6 +636,10 @@ export default function ProductionDashboard() {
             unit_price: item.unit_price,
             batch_number: item.batch_number
           });
+        
+        if (insertError) {
+          console.error('Erro ao inserir item:', insertError);
+        }
       }
       
       console.log(`✅ Itens adicionados ao envio existente da loja ${store.store_name}`);
@@ -590,8 +650,11 @@ export default function ProductionDashboard() {
     }
   };
 
-  // Validação do formato do lote
-  const validateBatchNumber = (batch: string) => {
+  // Validação do formato do lote (removida declaração não usada)
+  // Esta função existe mas não é chamada no código, então o TypeScript reclamou
+  // Mantemos comentada para referência se precisar no futuro
+  /*
+  const _validateBatchNumber = (batch: string) => {
     if (!batch) return false;
     
     // Formato básico: LOTE-YYYYMMDD
@@ -603,6 +666,7 @@ export default function ProductionDashboard() {
     
     return true;
   };
+  */
 
   // ========== RENDERIZAÇÃO ==========
   if (loading) {
