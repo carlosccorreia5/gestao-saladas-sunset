@@ -10,6 +10,18 @@ interface UserData {
   storeName?: string;
 }
 
+interface DatabaseUser {
+  full_name?: string;
+  profile_id?: string;
+  store_id?: string;
+  profiles?: {
+    username: string;
+  };
+  stores?: {
+    name: string;
+  };
+}
+
 export function useAuthData() {
   const [userData, setUserData] = useState<UserData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -28,7 +40,11 @@ export function useAuthData() {
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       
       if (sessionError) throw new Error('Erro na sessão: ' + sessionError.message);
-      if (!session) throw new Error('Nenhuma sessão encontrada');
+      if (!session) {
+        setUserData(null);
+        setLoading(false);
+        return;
+      }
 
       const email = session.user.email || '';
 
@@ -45,17 +61,32 @@ export function useAuthData() {
         .eq('email', email)
         .single();
 
-      if (userError) throw new Error('Usuário não encontrado: ' + userError.message);
+      if (userError) {
+        // Se o usuário não existe na tabela users, cria dados básicos
+        console.warn('Usuário não encontrado na tabela users, criando dados básicos');
+        
+        setUserData({
+          email,
+          profile: 'user', // Perfil padrão
+          fullName: session.user.user_metadata?.full_name || email.split('@')[0]
+        });
+        return;
+      }
 
-      // 3. Extrai os dados
-      const userProfile = userData?.profiles?.username || '';
-      const storeName = userData?.stores?.name || '';
+      // 3. Extrai os dados com verificação segura
+      const dbUser = userData as DatabaseUser;
+      
+      // CORREÇÃO: Acessando propriedades de forma segura
+      const userProfile = dbUser.profiles?.username || 'user';
+      const storeName = dbUser.stores?.name || undefined;
+      const fullName = dbUser.full_name || email.split('@')[0];
+      const storeId = dbUser.store_id || undefined;
 
       setUserData({
         email,
         profile: userProfile,
-        fullName: userData.full_name,
-        storeId: userData.store_id,
+        fullName,
+        storeId,
         storeName
       });
 

@@ -1,5 +1,10 @@
 import { useState, useCallback } from 'react';
 
+// Declarações de tipo para evitar erros do TypeScript
+// O Vercel precisa destas declarações para compilar corretamente
+type XLSXType = typeof import('xlsx');
+type SaveAsType = (blob: Blob, fileName: string) => void;
+
 export const useExcelExport = () => {
   const [isLoading, setIsLoading] = useState(false);
 
@@ -8,8 +13,9 @@ export const useExcelExport = () => {
     
     try {
       // Carregamento dinâmico das bibliotecas
-      const XLSX = await import('xlsx');
-      const { saveAs } = await import('file-saver');
+      const XLSX: XLSXType = await import('xlsx');
+      const fileSaverModule = await import('file-saver');
+      const saveAs: SaveAsType = fileSaverModule.saveAs;
 
       if (!data || data.length === 0) {
         throw new Error('Nenhum dado para exportar');
@@ -36,8 +42,18 @@ export const useExcelExport = () => {
       saveAs(blob, fileName);
       
       return true;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Erro ao exportar Excel:', error);
+      
+      // Mensagem de erro mais amigável
+      if (error.message.includes('Cannot find module')) {
+        throw new Error(
+          'Bibliotecas de exportação não disponíveis. ' +
+          'Verifique se as dependências estão instaladas: ' +
+          'npm install xlsx file-saver @types/xlsx @types/file-saver'
+        );
+      }
+      
       throw error;
     } finally {
       setIsLoading(false);
@@ -51,8 +67,9 @@ export const useExcelExport = () => {
     setIsLoading(true);
     
     try {
-      const XLSX = await import('xlsx');
-      const { saveAs } = await import('file-saver');
+      const XLSX: XLSXType = await import('xlsx');
+      const fileSaverModule = await import('file-saver');
+      const saveAs: SaveAsType = fileSaverModule.saveAs;
 
       const wb = XLSX.utils.book_new();
 
@@ -75,8 +92,17 @@ export const useExcelExport = () => {
       saveAs(blob, fileName);
       
       return true;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Erro ao exportar múltiplas abas:', error);
+      
+      if (error.message.includes('Cannot find module')) {
+        throw new Error(
+          'Bibliotecas de exportação não disponíveis. ' +
+          'Verifique se as dependências estão instaladas: ' +
+          'npm install xlsx file-saver @types/xlsx @types/file-saver'
+        );
+      }
+      
       throw error;
     } finally {
       setIsLoading(false);
