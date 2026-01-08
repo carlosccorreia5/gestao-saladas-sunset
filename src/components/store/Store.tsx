@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import Header from '../common/Header';
-import { getSaladTypes, LOSS_REASONS, ORDER_STATUS, generateSequenceNumber } from '../../data/saladTypes';
+import { getSaladTypes, LOSS_REASONS, ORDER_STATUS } from '../../data/saladTypes'; // Removido generateSequenceNumber
 
 // Interfaces
 interface SaladType {
@@ -42,12 +42,22 @@ interface RecentOrder {
   total_items: number;
 }
 
+// Função para gerar números de sequência
+const generateSequenceNumber = (prefix: string, lastNumber: number): string => {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  const day = String(today.getDate()).padStart(2, '0');
+  const sequence = String(lastNumber + 1).padStart(4, '0');
+  return `${prefix}-${year}${month}${day}-${sequence}`;
+};
+
 export default function StoreDashboard() {
   const [storeData, setStoreData] = useState<any>(null);
   const [userEmail, setUserEmail] = useState('');
-  const [userId, setUserId] = useState<string>('');
+  const [_userId, setUserId] = useState<string>(''); // Renomeado para _userId (não usado)
   const [loading, setLoading] = useState(true);
-  const [userDbId, setUserDbId] = useState<string>(''); // 👈 NOVO
+  const [userDbId, setUserDbId] = useState<string>('');
   const [saladTypes, setSaladTypes] = useState<SaladType[]>([]);
   
   // Estados para os modais
@@ -171,13 +181,17 @@ export default function StoreDashboard() {
   const fetchLastSequenceNumbers = async (storeId: string) => {
     try {
       // Último pedido
-      const { data: lastOrder } = await supabase
+      const { data: lastOrder, error: orderError } = await supabase
         .from('production_shipments')
         .select('shipment_number')
         .eq('store_id', storeId)
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
+      
+      if (orderError) {
+        console.error('Erro ao buscar último pedido:', orderError);
+      }
       
       if (lastOrder?.shipment_number) {
         const match = lastOrder.shipment_number.match(/-(\d{4})$/);
@@ -187,13 +201,17 @@ export default function StoreDashboard() {
       }
       
       // Última perda
-      const { data: lastLoss } = await supabase
+      const { data: lastLoss, error: lossError } = await supabase
         .from('losses')
         .select('loss_number')
         .eq('store_id', storeId)
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
+      
+      if (lossError) {
+        console.error('Erro ao buscar última perda:', lossError);
+      }
       
       if (lastLoss?.loss_number) {
         const match = lastLoss.loss_number.match(/-(\d{4})$/);
@@ -207,7 +225,7 @@ export default function StoreDashboard() {
   };
 
   // Validação do formato do lote
-  const validateBatchNumber = (batch: string) => {
+  const validateBatchNumber = (batch: string): boolean => {
     // Verifica se tem o formato básico LOTE-YYYYMMDD
     const pattern = /^LOTE-\d{8}$/;
     if (!pattern.test(batch)) {
@@ -318,6 +336,7 @@ export default function StoreDashboard() {
         const productionDate = shipment.production_date;
         const expirationDate = new Date(productionDate);
         expirationDate.setDate(expirationDate.getDate() + 3);
+        
         const { error: itemError } = await supabase
           .from('production_items')
           .insert({
@@ -327,7 +346,7 @@ export default function StoreDashboard() {
             unit_price: unitPrice,
             production_date: productionDate,
             expiration_date: expirationDate.toISOString().slice(0, 10)
-           });
+          });
 
         if (itemError) {
           console.error('Erro ao salvar item:', itemError);
@@ -373,221 +392,221 @@ export default function StoreDashboard() {
 
   // ========== FUNÇÕES DO REGISTRO DE PERDAS ==========
   const addToLossCart = () => {
-      const salad = saladTypes.find(s => s.id === selectedLossType);
-      const reason = LOSS_REASONS.find(r => r.id === lossReason);
-      
-      if (!salad || !reason) return;
-      
-      // Calcula o valor da perda
-      const lossValue = salad.sale_price * lossQuantity;
-      
-      const newItem: LossItem = {
-        id: Date.now().toString(),
-        salad_type_id: selectedLossType,
-        name: salad.name,
-        emoji: salad.emoji,
-        quantity: lossQuantity,
-        batch_number: batchNumber,
-        reason: reason.name,
-        loss_value: lossValue,
-        notes: lossNotes
-      };
-      
-      setLossCart([...lossCart, newItem]);
-      
-      // Reseta campos
-      setLossQuantity(1);
-      setLossNotes('');
+    const salad = saladTypes.find(s => s.id === selectedLossType);
+    const reason = LOSS_REASONS.find(r => r.id === lossReason);
+    
+    if (!salad || !reason) return;
+    
+    // Calcula o valor da perda
+    const lossValue = salad.sale_price * lossQuantity;
+    
+    const newItem: LossItem = {
+      id: Date.now().toString(),
+      salad_type_id: selectedLossType,
+      name: salad.name,
+      emoji: salad.emoji,
+      quantity: lossQuantity,
+      batch_number: batchNumber,
+      reason: reason.name,
+      loss_value: lossValue,
+      notes: lossNotes
     };
     
-    const removeLossItem = (id: string) => {
-      setLossCart(lossCart.filter(item => item.id !== id));
-    };
+    setLossCart([...lossCart, newItem]);
     
-    const submitLosses = async () => {
-      if (lossCart.length === 0) {
-        alert('Adicione pelo menos um item de perda!');
-        return;
+    // Reseta campos
+    setLossQuantity(1);
+    setLossNotes('');
+  };
+  
+  const removeLossItem = (id: string) => {
+    setLossCart(lossCart.filter(item => item.id !== id));
+  };
+  
+  const submitLosses = async () => {
+    if (lossCart.length === 0) {
+      alert('Adicione pelo menos um item de perda!');
+      return;
+    }
+
+    if (!storeData?.id) {
+      alert('Erro: Loja não identificada.');
+      return;
+    }
+
+    // Validação dos lotes
+    for (const item of lossCart) {
+      if (!validateBatchNumber(item.batch_number)) {
+        return; // Para a execução
       }
-    
-      if (!storeData?.id) {
-        alert('Erro: Loja não identificada.');
-        return;
+    }
+
+    try {
+      const totalItems = lossCart.reduce((sum, item) => sum + item.quantity, 0);
+      const totalValue = lossCart.reduce((sum, item) => {
+        return sum + (item.loss_value || 0);
+      }, 0);
+      
+      const today = new Date().toISOString().split('T')[0];
+      
+      console.log('📉 Verificando perdas existentes para hoje...', {
+        storeId: storeData.id,
+        date: today
+      });
+      
+      // 1. PRIMEIRO: Verificar se já existe uma perda "completed" hoje
+      const { data: existingLoss, error: checkError } = await supabase
+        .from('losses')
+        .select('id, loss_number, total_items, total_value')
+        .eq('store_id', storeData.id)
+        .eq('loss_date', today)
+        .eq('status', 'completed')
+        .maybeSingle();
+      
+      if (checkError) {
+        console.error('Erro ao verificar perdas existentes:', checkError);
       }
-    
-      // Validação dos lotes
-      for (const item of lossCart) {
-        if (!validateBatchNumber(item.batch_number)) {
-          return; // Para a execução
+      
+      let lossId: string;
+      let lossNumber: string;
+      let isNewLoss = false;
+      
+      if (existingLoss) {
+        // 2A. JÁ EXISTE PERDA HOJE: Usar a existente
+        console.log('✅ Perda existente encontrada:', existingLoss);
+        lossId = existingLoss.id;
+        lossNumber = existingLoss.loss_number;
+        
+        // Atualizar totais na perda existente
+        const newTotalItems = existingLoss.total_items + totalItems;
+        const newTotalValue = existingLoss.total_value + totalValue;
+        
+        const { error: updateError } = await supabase
+          .from('losses')
+          .update({
+            total_items: newTotalItems,
+            total_value: newTotalValue,
+            notes: `Atualização automática. ${lossNotes ? `Observações: ${lossNotes}` : ''}`
+          })
+          .eq('id', lossId);
+        
+        if (updateError) {
+          console.error('Erro ao atualizar perda existente:', updateError);
+          throw updateError;
         }
-      }
-    
-      try {
-        const totalItems = lossCart.reduce((sum, item) => sum + item.quantity, 0);
-        const totalValue = lossCart.reduce((sum, item) => {
-          return sum + (item.loss_value || 0);
-        }, 0);
         
-        const today = new Date().toISOString().split('T')[0];
+        console.log('✅ Perda existente atualizada');
         
-        console.log('📉 Verificando perdas existentes para hoje...', {
+      } else {
+        // 2B. NÃO EXISTE PERDA HOJE: Criar nova
+        isNewLoss = true;
+        lossNumber = generateSequenceNumber('PER', lastLossNumber);
+        
+        console.log('📝 Criando nova perda para hoje...', {
           storeId: storeData.id,
-          date: today
+          totalItems,
+          totalValue,
+          lossNumber
         });
         
-        // 1. PRIMEIRO: Verificar se já existe uma perda "completed" hoje
-        const { data: existingLoss, error: checkError } = await supabase
+        const { data: newLoss, error: lossError } = await supabase
           .from('losses')
-          .select('id, loss_number, total_items, total_value')
-          .eq('store_id', storeData.id)
-          .eq('loss_date', today)
-          .eq('status', 'completed')
-          .maybeSingle();
+          .insert({
+            loss_number: lossNumber,
+            store_id: storeData.id,
+            loss_date: today,
+            status: 'completed',
+            total_items: totalItems,
+            total_value: totalValue,
+            notes: `Registro automático da loja. ${lossNotes ? `Observações: ${lossNotes}` : ''}`,
+            created_by: userDbId
+          })
+          .select()
+          .single();
         
-        if (checkError) {
-          console.error('Erro ao verificar perdas existentes:', checkError);
+        if (lossError) {
+          console.error('❌ Erro ao criar perda principal:', lossError);
+          throw lossError;
         }
         
-        let lossId: string;
-        let lossNumber: string;
-        let isNewLoss = false;
-        
-        if (existingLoss) {
-          // 2A. JÁ EXISTE PERDA HOJE: Usar a existente
-          console.log('✅ Perda existente encontrada:', existingLoss);
-          lossId = existingLoss.id;
-          lossNumber = existingLoss.loss_number;
-          
-          // Atualizar totais na perda existente
-          const newTotalItems = existingLoss.total_items + totalItems;
-          const newTotalValue = existingLoss.total_value + totalValue;
-          
-          const { error: updateError } = await supabase
-            .from('losses')
-            .update({
-              total_items: newTotalItems,
-              total_value: newTotalValue,
-              notes: `Atualização automática. ${lossNotes ? `Observações: ${lossNotes}` : ''}`
-            })
-            .eq('id', lossId);
-          
-          if (updateError) {
-            console.error('Erro ao atualizar perda existente:', updateError);
-            throw updateError;
-          }
-          
-          console.log('✅ Perda existente atualizada');
-          
-        } else {
-          // 2B. NÃO EXISTE PERDA HOJE: Criar nova
-          isNewLoss = true;
-          lossNumber = generateSequenceNumber('PER', lastLossNumber);
-          
-          console.log('📝 Criando nova perda para hoje...', {
-            storeId: storeData.id,
-            totalItems,
-            totalValue,
-            lossNumber
-          });
-          
-          const { data: newLoss, error: lossError } = await supabase
-            .from('losses')
-            .insert({
-              loss_number: lossNumber,
-              store_id: storeData.id,
-              loss_date: today,
-              status: 'completed',
-              total_items: totalItems,
-              total_value: totalValue,
-              notes: `Registro automático da loja. ${lossNotes ? `Observações: ${lossNotes}` : ''}`,
-              created_by: userDbId
-            })
-            .select()
-            .single();
-          
-          if (lossError) {
-            console.error('❌ Erro ao criar perda principal:', lossError);
-            throw lossError;
-          }
-          
-          lossId = newLoss.id;
-          console.log('✅ Nova perda criada:', lossId);
-        }
-        
-        // 3. Criar itens em loss_items
-        for (const item of lossCart) {
-          console.log('📝 Salvando item de perda:', item);
-          
-          // Calcula o valor da perda se não tiver
-          const salad = saladTypes.find(s => s.id === item.salad_type_id);
-          const lossValue = item.loss_value || (salad?.sale_price || 10.00) * item.quantity;
-          
-          const itemData: any = {
-            loss_id: lossId,
-            salad_type_id: item.salad_type_id,
-            quantity: item.quantity,
-            batch_number: item.batch_number,
-            reason: item.reason,
-            loss_value: lossValue
-          };
-          
-          // Adiciona campo opcional de notas
-          if (item.notes) {
-            itemData.notes = item.notes;
-          }
-          
-          console.log('📤 Dados do item a serem enviados:', itemData);
-          
-          const { error: itemError } = await supabase
-            .from('loss_items')
-            .insert(itemData);
-          
-          if (itemError) {
-            console.error('❌ Erro ao salvar item de perda:', itemError);
-            
-            // Verifica se é erro de duplicidade também em loss_items
-            if (itemError.code === '23505') {
-              alert(`⚠️ Item "${item.name}" do lote "${item.batch_number}" já foi registrado hoje. Pulando...`);
-              continue; // Pula para o próximo item
-            } else {
-              throw itemError;
-            }
-          }
-          
-          console.log('✅ Item de perda salvo com sucesso');
-        }
-        
-        console.log('✅ Todos os itens de perda processados');
-        
-        if (isNewLoss) {
-          alert(`✅ Novas perdas registradas com sucesso!\nNúmero: ${lossNumber}\nTotal: ${totalItems} unidades\nValor: R$ ${totalValue.toFixed(2)}`);
-          // Atualizar estado apenas se for nova perda
-          setLastLossNumber(prev => prev + 1);
-        } else {
-          alert(`✅ Perdas adicionadas ao registro do dia!\nItens adicionados: ${totalItems}\nValor adicional: R$ ${totalValue.toFixed(2)}`);
-        }
-        
-        // Limpar e fechar
-        setLossCart([]);
-        setShowLossModal(false);
-        
-      } catch (error: any) {
-        console.error('❌ Erro completo ao registrar perdas:', error);
-        
-        // Mensagem mais detalhada para o usuário
-        const errorMessage = error.message || 'Erro desconhecido';
-        const errorCode = error.code || 'N/A';
-        
-        let userMessage = `❌ Erro ao registrar perdas:\n\nCódigo: ${errorCode}\nMensagem: ${errorMessage}`;
-        
-        // Mensagens específicas para códigos conhecidos
-        if (errorCode === '23505') {
-          userMessage += '\n\n⚠️ Já existe um registro de perda completado hoje.\nSe precisar adicionar mais itens, feche e abra novamente o modal.';
-        }
-        
-        alert(userMessage);
+        lossId = newLoss.id;
+        console.log('✅ Nova perda criada:', lossId);
       }
-    };
+      
+      // 3. Criar itens em loss_items
+      for (const item of lossCart) {
+        console.log('📝 Salvando item de perda:', item);
+        
+        // Calcula o valor da perda se não tiver
+        const salad = saladTypes.find(s => s.id === item.salad_type_id);
+        const lossValue = item.loss_value || (salad?.sale_price || 10.00) * item.quantity;
+        
+        const itemData: any = {
+          loss_id: lossId,
+          salad_type_id: item.salad_type_id,
+          quantity: item.quantity,
+          batch_number: item.batch_number,
+          reason: item.reason,
+          loss_value: lossValue
+        };
+        
+        // Adiciona campo opcional de notas
+        if (item.notes) {
+          itemData.notes = item.notes;
+        }
+        
+        console.log('📤 Dados do item a serem enviados:', itemData);
+        
+        const { error: itemError } = await supabase
+          .from('loss_items')
+          .insert(itemData);
+        
+        if (itemError) {
+          console.error('❌ Erro ao salvar item de perda:', itemError);
+          
+          // Verifica se é erro de duplicidade também em loss_items
+          if (itemError.code === '23505') {
+            alert(`⚠️ Item "${item.name}" do lote "${item.batch_number}" já foi registrado hoje. Pulando...`);
+            continue; // Pula para o próximo item
+          } else {
+            throw itemError;
+          }
+        }
+        
+        console.log('✅ Item de perda salvo com sucesso');
+      }
+      
+      console.log('✅ Todos os itens de perda processados');
+      
+      if (isNewLoss) {
+        alert(`✅ Novas perdas registradas com sucesso!\nNúmero: ${lossNumber}\nTotal: ${totalItems} unidades\nValor: R$ ${totalValue.toFixed(2)}`);
+        // Atualizar estado apenas se for nova perda
+        setLastLossNumber(prev => prev + 1);
+      } else {
+        alert(`✅ Perdas adicionadas ao registro do dia!\nItens adicionados: ${totalItems}\nValor adicional: R$ ${totalValue.toFixed(2)}`);
+      }
+      
+      // Limpar e fechar
+      setLossCart([]);
+      setShowLossModal(false);
+      
+    } catch (error: any) {
+      console.error('❌ Erro completo ao registrar perdas:', error);
+      
+      // Mensagem mais detalhada para o usuário
+      const errorMessage = error.message || 'Erro desconhecido';
+      const errorCode = error.code || 'N/A';
+      
+      let userMessage = `❌ Erro ao registrar perdas:\n\nCódigo: ${errorCode}\nMensagem: ${errorMessage}`;
+      
+      // Mensagens específicas para códigos conhecidos
+      if (errorCode === '23505') {
+        userMessage += '\n\n⚠️ Já existe um registro de perda completado hoje.\nSe precisar adicionar mais itens, feche e abra novamente o modal.';
+      }
+      
+      alert(userMessage);
+    }
+  };
 
   // ========== RENDERIZAÇÃO ==========
   if (loading || saladTypes.length === 0) {
