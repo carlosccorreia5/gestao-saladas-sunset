@@ -3,6 +3,13 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 
+// Interface para os dados do usuário
+interface UserProfileData {
+  profiles?: {
+    username: string;
+  };
+}
+
 export default function DashboardRedirect() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
@@ -21,14 +28,26 @@ export default function DashboardRedirect() {
         return;
       }
 
-      // 2. Busca perfil do usuário
-      const { data: userData } = await supabase
+      // 2. Busca perfil do usuário - CORREÇÃO: corrigido acesso ao array
+      const { data: userData, error } = await supabase
         .from('users')
-        .select('profiles:profile_id(username)')
+        .select(`
+          profiles:profile_id (
+            username
+          )
+        `)
         .eq('email', session.user.email)
         .single();
 
-      const profile = userData?.profiles?.username;
+      if (error) {
+        console.error('Erro ao buscar perfil:', error);
+        navigate('/');
+        return;
+      }
+
+      // CORREÇÃO: Acessar propriedade de forma segura
+      const profileData = userData as UserProfileData;
+      const profile = profileData.profiles?.username;
 
       // 3. Redireciona baseado no perfil
       switch (profile) {
