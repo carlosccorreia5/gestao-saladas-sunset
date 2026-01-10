@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 
 // Declarações de tipo para evitar erros do TypeScript
 // O Vercel precisa destas declarações para compilar corretamente
-type XLSXType = typeof import('xlsx');
+type XLSXType = any; // Usamos any para simplificar, já que o xlsx pode não ter tipos definidos
 type SaveAsType = (blob: Blob, fileName: string) => void;
 
 export const useExcelExport = () => {
@@ -12,24 +12,32 @@ export const useExcelExport = () => {
     setIsLoading(true);
     
     try {
-      // Carregamento dinâmico das bibliotecas
-      const XLSX: XLSXType = await import('xlsx');
-      const fileSaverModule = await import('file-saver');
-      const saveAs: SaveAsType = fileSaverModule.saveAs;
+      // Verificar se estamos no navegador (cliente)
+      if (typeof window === 'undefined') {
+        throw new Error('Exportação Excel só disponível no navegador');
+      }
 
       if (!data || data.length === 0) {
         throw new Error('Nenhum dado para exportar');
       }
 
+      // Verificar se as bibliotecas estão carregadas globalmente
+      if (!window.XLSX || !window.saveAs) {
+        throw new Error(
+          'Bibliotecas de exportação não disponíveis. ' +
+          'Recarregue a página ou verifique as dependências.'
+        );
+      }
+
       // Criar worksheet
-      const ws = XLSX.utils.json_to_sheet(data);
+      const ws = window.XLSX.utils.json_to_sheet(data);
       
       // Criar workbook
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, sheetName);
+      const wb = window.XLSX.utils.book_new();
+      window.XLSX.utils.book_append_sheet(wb, ws, sheetName);
       
       // Gerar buffer Excel
-      const excelBuffer = XLSX.write(wb, { 
+      const excelBuffer = window.XLSX.write(wb, { 
         bookType: 'xlsx', 
         type: 'array' 
       });
@@ -39,18 +47,19 @@ export const useExcelExport = () => {
         type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
       });
       
-      saveAs(blob, fileName);
+      window.saveAs(blob, fileName);
       
       return true;
     } catch (error: any) {
       console.error('Erro ao exportar Excel:', error);
       
       // Mensagem de erro mais amigável
-      if (error.message.includes('Cannot find module')) {
+      if (error.message.includes('não disponíveis')) {
         throw new Error(
-          'Bibliotecas de exportação não disponíveis. ' +
-          'Verifique se as dependências estão instaladas: ' +
-          'npm install xlsx file-saver @types/xlsx @types/file-saver'
+          '📗 Excel: Bibliotecas não carregadas\n\n' +
+          'Solução 1: Recarregue a página\n' +
+          'Solução 2: Instale as dependências no StackBlitz:\n' +
+          'npm install xlsx file-saver'
         );
       }
       
@@ -67,20 +76,29 @@ export const useExcelExport = () => {
     setIsLoading(true);
     
     try {
-      const XLSX: XLSXType = await import('xlsx');
-      const fileSaverModule = await import('file-saver');
-      const saveAs: SaveAsType = fileSaverModule.saveAs;
+      // Verificar se estamos no navegador (cliente)
+      if (typeof window === 'undefined') {
+        throw new Error('Exportação Excel só disponível no navegador');
+      }
 
-      const wb = XLSX.utils.book_new();
+      // Verificar se as bibliotecas estão carregadas globalmente
+      if (!window.XLSX || !window.saveAs) {
+        throw new Error(
+          'Bibliotecas de exportação não disponíveis. ' +
+          'Recarregue a página ou verifique as dependências.'
+        );
+      }
+
+      const wb = window.XLSX.utils.book_new();
 
       sheets.forEach((sheet, index) => {
         if (sheet.data && sheet.data.length > 0) {
-          const ws = XLSX.utils.json_to_sheet(sheet.data);
-          XLSX.utils.book_append_sheet(wb, ws, sheet.sheetName || `Sheet${index + 1}`);
+          const ws = window.XLSX.utils.json_to_sheet(sheet.data);
+          window.XLSX.utils.book_append_sheet(wb, ws, sheet.sheetName || `Sheet${index + 1}`);
         }
       });
 
-      const excelBuffer = XLSX.write(wb, { 
+      const excelBuffer = window.XLSX.write(wb, { 
         bookType: 'xlsx', 
         type: 'array' 
       });
@@ -89,17 +107,18 @@ export const useExcelExport = () => {
         type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
       });
       
-      saveAs(blob, fileName);
+      window.saveAs(blob, fileName);
       
       return true;
     } catch (error: any) {
       console.error('Erro ao exportar múltiplas abas:', error);
       
-      if (error.message.includes('Cannot find module')) {
+      if (error.message.includes('não disponíveis')) {
         throw new Error(
-          'Bibliotecas de exportação não disponíveis. ' +
-          'Verifique se as dependências estão instaladas: ' +
-          'npm install xlsx file-saver @types/xlsx @types/file-saver'
+          '📗 Excel: Bibliotecas não carregadas\n\n' +
+          'Solução 1: Recarregue a página\n' +
+          'Solução 2: Instale as dependências no StackBlitz:\n' +
+          'npm install xlsx file-saver'
         );
       }
       
