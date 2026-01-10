@@ -4,13 +4,12 @@
 declare global {
   interface Window {
     jsPDF?: any;
-    jspdf?: any;
     autoTable?: any;
   }
 }
 
 // Tipos para as bibliotecas
-type JSPDFType = any; // Podemos usar any ou tipar mais especificamente se necessário
+type JSPDFType = any;
 type AutoTableType = any;
 
 let jsPDF: JSPDFType | null = null;
@@ -20,7 +19,7 @@ export const loadPDFLibraries = async (): Promise<boolean> => {
   try {
     console.log('🔍 Carregando bibliotecas PDF...');
     
-    // Tentar usar do window primeiro (CDN) - CORRIGIDO: window.jsPDF
+    // Tentar usar do window primeiro (CDN)
     if (typeof window !== 'undefined' && window.jsPDF) {
       console.log('✅ Usando jsPDF do window (CDN)');
       jsPDF = window.jsPDF;
@@ -28,10 +27,18 @@ export const loadPDFLibraries = async (): Promise<boolean> => {
       // Tentar carregar autoTable do CDN primeiro
       if (window.autoTable) {
         autoTable = window.autoTable;
+        console.log('✅ Usando autoTable do window (CDN)');
       } else {
         // Fallback: carregar dinamicamente
-        const autoTableModule = await import('jspdf-autotable');
-        autoTable = autoTableModule.default;
+        try {
+          const autoTableModule = await import('jspdf-autotable');
+          autoTable = autoTableModule.default;
+          console.log('✅ AutoTable carregado dinamicamente');
+        } catch (error) {
+          console.warn('⚠️ AutoTable não encontrado, tentando método alternativo');
+          // Método alternativo para autoTable
+          autoTable = null;
+        }
       }
       return true;
     }
@@ -41,8 +48,14 @@ export const loadPDFLibraries = async (): Promise<boolean> => {
     const jsPDFModule = await import('jspdf');
     jsPDF = jsPDFModule.default;
     
-    const autoTableModule = await import('jspdf-autotable');
-    autoTable = autoTableModule.default;
+    try {
+      const autoTableModule = await import('jspdf-autotable');
+      autoTable = autoTableModule.default;
+      console.log('✅ Bibliotecas carregadas com sucesso');
+    } catch (error) {
+      console.warn('⚠️ AutoTable não disponível, usando funcionalidade básica');
+      autoTable = null;
+    }
     
     return true;
   } catch (error) {
@@ -53,33 +66,93 @@ export const loadPDFLibraries = async (): Promise<boolean> => {
 
 export const createPDFDocument = (): any => {
   if (!jsPDF) {
-    throw new Error('jsPDF não carregado');
+    throw new Error('jsPDF não carregado. Chame loadPDFLibraries() primeiro.');
   }
   return new jsPDF('p', 'mm', 'a4');
 };
 
-// CORREÇÃO IMPORTANTE: autoTable deve ser aplicado ao documento
 export const addAutoTable = (doc: any, options: any): any => {
+  // Se autoTable não estiver disponível, usar alternativa básica
   if (!autoTable) {
-    throw new Error('AutoTable não carregado');
+    console.warn('⚠️ AutoTable não disponível, usando método básico');
+    return addBasicTable(doc, options);
   }
   
-  // Aplicar o plugin autoTable ao documento
+  // Verificar diferentes formatos de autoTable
   if (typeof autoTable === 'function') {
     return autoTable(doc, options);
+  } else if (typeof doc.autoTable === 'function') {
+    return doc.autoTable(options);
+  } else if (typeof doc.autoTable === 'object' && typeof doc.autoTable.apply === 'function') {
+    return doc.autoTable.apply(doc, [options]);
   } else {
-    // Se for o objeto padrão do jspdf-autotable v3+
-    if (typeof doc.autoTable === 'function') {
-      return doc.autoTable(options);
-    } else {
-      // Fallback para versões mais antigas
-      return autoTable(doc, options);
-    }
+    console.warn('⚠️ Formato de autoTable não reconhecido, usando método básico');
+    return addBasicTable(doc, options);
   }
 };
 
+// Função alternativa básica para quando autoTable não está disponível
+const addBasicTable = (doc: any, options: any): any => {
+  const { startY = 30, head = [], body = [], theme = 'grid' } = options;
+  
+  let currentY = startY;
+  const marginX = 20;
+  const maxWidth = 170; // Largura da página menos margens
+  
+  // Calcular largura das colunas
+  const colCount = Math.max(head[0]?.length || 0, body[0]?.length || 0);
+  const colWidth = maxWidth / colCount;
+  
+  // Desenhar cabeçalho
+  if (head.length > 0) {
+    doc.setFillColor(41, 128, 185); // Azul
+    doc.rect(marginX, currentY, maxWidth, 10, 'F');
+    
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    
+    head[0].forEach((header: string, index: number) => {
+      doc.text(header, marginX + (index * colWidth) + 2, currentY + 7);
+    });
+    
+    currentY += 10;
+  }
+  
+  // Desenhar linhas do corpo
+  doc.setTextColor(0, 0, 0);
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'normal');
+  
+  body.forEach((row: any[], rowIndex: number) => {
+    // Alternar cores das linhas
+    if (theme === 'grid' || theme === 'striped') {
+      if (rowIndex % 2 === 0) {
+        doc.setFillColor(245, 245, 245);
+        doc.rect(marginX, currentY, maxWidth, 10, 'F');
+      }
+    }
+    
+    row.forEach((cell: any, colIndex: number) => {
+      const cellText = cell?.toString() || '';
+      doc.text(cellText, marginX + (colIndex * colWidth) + 2, currentY + 7);
+    });
+    
+    currentY += 10;
+    
+    // Verificar se precisa de nova página
+    if (currentY > 270 && rowIndex < body.length - 1) {
+      doc.addPage();
+      currentY = 20;
+    }
+  });
+  
+  // Retornar a posição Y final para o chamador
+  return { finalY: currentY + 10 };
+};
+
 export const isPDFReady = (): boolean => {
-  return !!(jsPDF && autoTable);
+  return !!jsPDF;
 };
 
 // Interface para opções da tabela
@@ -92,41 +165,6 @@ interface TableOptions {
   columnStyles?: any;
   [key: string]: any;
 }
-
-// Função alternativa mais simples
-export const exportPDFSimple = async (
-  title: string, 
-  headers: string[], 
-  data: any[][]
-): Promise<any> => {
-  try {
-    const loaded = await loadPDFLibraries();
-    if (!loaded) {
-      throw new Error('Bibliotecas não carregadas');
-    }
-    
-    const doc = createPDFDocument();
-    
-    // Adicionar título
-    doc.setFontSize(20);
-    doc.text(title, 105, 20, { align: 'center' });
-    
-    // Adicionar tabela
-    const tableOptions: TableOptions = {
-      startY: 30,
-      head: [headers],
-      body: data,
-      theme: 'grid'
-    };
-    
-    addAutoTable(doc, tableOptions);
-    
-    return doc;
-  } catch (error) {
-    console.error('Erro ao exportar PDF:', error);
-    throw error;
-  }
-};
 
 // Função para gerar e salvar PDF diretamente
 export const generateAndSavePDF = async (
@@ -159,7 +197,7 @@ export const generateAndSavePDF = async (
   }
 };
 
-// Função para criar PDF com tabela de dados
+// Função para criar PDF com tabela de dados (versão simplificada)
 export const createTablePDF = async (
   title: string,
   headers: string[],
@@ -195,16 +233,20 @@ export const createTablePDF = async (
       ...options
     };
     
-    // Adicionar tabela
+    // Adicionar tabela (com fallback automático)
     addAutoTable(doc, tableOptions);
     
-    // Adicionar rodapé
-    const pageCount = doc.getNumberOfPages();
-    for (let i = 1; i <= pageCount; i++) {
-      doc.setPage(i);
-      doc.setFontSize(8);
-      doc.setTextColor(150, 150, 150);
-      doc.text(`Página ${i} de ${pageCount}`, 105, 285, { align: 'center' });
+    // Adicionar rodapé se possível
+    try {
+      const pageCount = doc.getNumberOfPages();
+      for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFontSize(8);
+        doc.setTextColor(150, 150, 150);
+        doc.text(`Página ${i} de ${pageCount}`, 105, 285, { align: 'center' });
+      }
+    } catch (error) {
+      console.warn('Não foi possível adicionar rodapé:', error);
     }
     
     // Salvar o PDF
@@ -214,4 +256,14 @@ export const createTablePDF = async (
     console.error('Erro ao criar PDF com tabela:', error);
     throw error;
   }
+};
+
+// Exportar funções básicas para uso imediato
+export default {
+  loadPDFLibraries,
+  createPDFDocument,
+  addAutoTable,
+  isPDFReady,
+  generateAndSavePDF,
+  createTablePDF
 };
