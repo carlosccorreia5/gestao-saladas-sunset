@@ -1,8 +1,8 @@
-// src/components/store/Store.tsx - VERSÃO CORRIGIDA
+// src/components/store/Store.tsx - VERSÃO COMPLETA E CORRIGIDA
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import Header from '../common/Header';
-import { getSaladTypes, LOSS_REASONS, ORDER_STATUS } from '../../data/saladTypes'; // Removido generateSequenceNumber
+import { getSaladTypes, LOSS_REASONS, ORDER_STATUS } from '../../data/saladTypes';
 
 // Interfaces
 interface SaladType {
@@ -55,7 +55,7 @@ const generateSequenceNumber = (prefix: string, lastNumber: number): string => {
 export default function StoreDashboard() {
   const [storeData, setStoreData] = useState<any>(null);
   const [userEmail, setUserEmail] = useState('');
-  const [_userId, setUserId] = useState<string>(''); // Renomeado para _userId (não usado)
+  const [userId, setUserId] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [userDbId, setUserDbId] = useState<string>('');
   const [saladTypes, setSaladTypes] = useState<SaladType[]>([]);
@@ -74,7 +74,7 @@ export default function StoreDashboard() {
   const [selectedLossType, setSelectedLossType] = useState<string>('');
   const [lossQuantity, setLossQuantity] = useState(1);
   const [batchNumber, setBatchNumber] = useState('');
-  const [lossReason, setLossReason] = useState(LOSS_REASONS[0].id);
+  const [lossReason, setLossReason] = useState(LOSS_REASONS[0]?.id || '');
   const [lossNotes, setLossNotes] = useState('');
   
   // Pedidos recentes
@@ -103,26 +103,24 @@ export default function StoreDashboard() {
         // 2. Busca dados da loja (já associada ao usuário)
         const { data: userData, error } = await supabase
           .from('users')
-          .select(`id,
-            full_name,
-            store_id,
-            stores!inner (id, name)
-          `)
+          .select(`id, full_name, store_id, stores!inner (id, name)`)
           .eq('auth_id', session.user.id)
           .single();
           
         if (error) {
           console.error('❌ Erro ao buscar dados da loja:', error);
-        } else if (userData?.stores) {
-          console.log('✅ Loja encontrada:', userData.stores.name);
+        } else if (userData) {
+          console.log('✅ Loja encontrada:', userData.stores?.name);
           setUserDbId(userData.id);
           setStoreData(userData.stores);
           
           // 3. Buscar pedidos recentes desta loja
-          fetchRecentOrders(userData.stores.id);
-          
-          // 4. Buscar últimos números de sequência
-          fetchLastSequenceNumbers(userData.stores.id);
+          if (userData.stores?.id) {
+            fetchRecentOrders(userData.stores.id);
+            
+            // 4. Buscar últimos números de sequência
+            fetchLastSequenceNumbers(userData.stores.id);
+          }
         }
         
         // 5. Buscar tipos de salada do banco
@@ -379,13 +377,11 @@ export default function StoreDashboard() {
       console.error('❌ Erro ao enviar pedido (raw):', error);
       console.error('❌ code:', error?.code);
       console.error('❌ message:', error?.message);
-      console.error('❌ details:', error?.details);
-      console.error('❌ hint:', error?.hint);
-    
+      
       alert(
         `Erro ao enviar pedido:\n` +
-        `Código: ${error?.code}\n` +
-        `Mensagem: ${error?.message}`
+        `Código: ${error?.code || 'N/A'}\n` +
+        `Mensagem: ${error?.message || 'Erro desconhecido'}`
       );
     }
   };
@@ -742,11 +738,7 @@ export default function StoreDashboard() {
               backgroundColor: '#F44336',
               color: 'white',
               border: 'none',
-              borderRadius: '10px',
-              fontSize: '16px',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              display: 'inline-block'
+              borderRadius: '10boxShadow: 0 8px 25px rgba(0,0,0,0.08)'
             }}>
               + Registrar Perdas
             </div>
@@ -787,13 +779,13 @@ export default function StoreDashboard() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                         <span style={{
                           padding: '4px 12px',
-                          backgroundColor: status?.color + '20',
-                          color: status?.color,
+                          backgroundColor: (status?.color || '#999') + '20',
+                          color: status?.color || '#999',
                           borderRadius: '20px',
                           fontSize: '12px',
                           fontWeight: 'bold'
                         }}>
-                          {status?.name}
+                          {status?.name || order.status}
                         </span>
                         <span style={{ color: '#666', fontSize: '14px' }}>
                           {new Date(order.created_at).toLocaleDateString('pt-BR')}
@@ -1306,13 +1298,13 @@ export default function StoreDashboard() {
                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '5px' }}>
                             <span style={{
                               padding: '4px 10px',
-                              backgroundColor: reason?.color + '20',
-                              color: reason?.color,
+                              backgroundColor: (reason?.color || '#999') + '20',
+                              color: reason?.color || '#999',
                               borderRadius: '20px',
                               fontSize: '12px',
                               fontWeight: 'bold'
                             }}>
-                              {reason?.emoji} {item.reason}
+                              {reason?.emoji || ''} {item.reason}
                             </span>
                             {item.notes && (
                               <span style={{ fontSize: '13px', color: '#666', fontStyle: 'italic' }}>
