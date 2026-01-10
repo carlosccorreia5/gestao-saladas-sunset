@@ -1,7 +1,7 @@
 // Removi a importação do React pois não é mais necessária em projetos modernos
 // O Vercel estava reclamando que estava declarado mas não usado
 
-import Header from '../shared/Header'; // Importação correta (default import)
+import Header from '../common/Header'; // Importação correta (default import)
 
 export function Admin() {
   return (

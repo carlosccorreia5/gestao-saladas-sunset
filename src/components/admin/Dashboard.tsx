@@ -1,4 +1,4 @@
-// src/components/admin/AdminDashboard.tsx - VERSÃO COMPLETA COM PDFEXPORTER
+// src/components/admin/AdminDashboard.tsx - VERSÃO CORRIGIDA
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import Header from '../common/Header';
@@ -138,12 +138,6 @@ export default function AdminDashboard() {
   // Modos de visualização
   const [viewMode, setViewMode] = useState<'consolidated' | 'detailed'>('consolidated');
   const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split('T')[0]);
-  
-  // Modais
-  const [showAdjustmentModal, setShowAdjustmentModal] = useState(false);
-  const [adjustmentReason, setAdjustmentReason] = useState('');
-  const [adjustmentDetails, setAdjustmentDetails] = useState('');
-  const [selectedForAdjustment, setSelectedForAdjustment] = useState<any>(null);
 
   // NOVO: Carregar bibliotecas PDF
   useEffect(() => {
@@ -195,7 +189,7 @@ export default function AdminDashboard() {
       
       if (userData) setUserDbId(userData.id);
       
-      // 3. Buscar lojas - CORREÇÃO: extrair .data
+      // 3. Buscar lojas - CORREÇÃO: data já é o array
       const { data: storesData, error: storesError } = await supabase
         .from('stores')
         .select('id, name')
@@ -204,7 +198,6 @@ export default function AdminDashboard() {
       if (storesError) throw storesError;
       
       if (storesData) {
-        // CORREÇÃO: storesData já é o array, não precisa de .data
         setStores(storesData);
       }
       
@@ -227,7 +220,6 @@ export default function AdminDashboard() {
         loadProfitLossEfficiency(),
         loadBatchLossReport(),
         loadComparativeReport(),
-        loadAuditLog(),
         loadCorrectionsList()
       ]);
     } catch (error) {
@@ -270,7 +262,7 @@ export default function AdminDashboard() {
     try {
       const today = selectedDate;
       
-      // 1. Buscar pedidos das lojas (de production_shipments - Store.tsx)
+      // 1. Buscar pedidos das lojas
       const { data: ordersData, error: ordersError } = await supabase
         .from('production_shipments')
         .select('id, total_items, store_id')
@@ -278,9 +270,9 @@ export default function AdminDashboard() {
       
       if (ordersError) throw ordersError;
       
-      const salads_requested = ordersData?.reduce((sum, item) => sum + item.total_items, 0) || 0;
+      const salads_requested = (ordersData || []).reduce((sum, item) => sum + item.total_items, 0) || 0;
       
-      // 2. Buscar envios da produção (de production_deliveries - Production.tsx)
+      // 2. Buscar envios da produção
       const { data: deliveriesData, error: deliveriesError } = await supabase
         .from('production_deliveries')
         .select('id, total_items, store_id')
@@ -288,9 +280,9 @@ export default function AdminDashboard() {
       
       if (deliveriesError) throw deliveriesError;
       
-      const salads_sent = deliveriesData?.reduce((sum, item) => sum + item.total_items, 0) || 0;
+      const salads_sent = (deliveriesData || []).reduce((sum, item) => sum + item.total_items, 0) || 0;
       
-      // 3. Buscar perdas (de losses - Store.tsx)
+      // 3. Buscar perdas
       const { data: lossesData, error: lossesError } = await supabase
         .from('losses')
         .select('total_items, total_value')
@@ -299,13 +291,13 @@ export default function AdminDashboard() {
       
       if (lossesError) throw lossesError;
       
-      const total_lost = lossesData?.reduce((sum, item) => sum + item.total_items, 0) || 0;
-      const total_value_lost = lossesData?.reduce((sum, item) => sum + item.total_value, 0) || 0;
+      const total_lost = (lossesData || []).reduce((sum, item) => sum + item.total_items, 0) || 0;
+      const total_value_lost = (lossesData || []).reduce((sum, item) => sum + item.total_value, 0) || 0;
       
       // 4. Buscar detalhes por tipo de salada
       const salads_by_type = await getSaladsByType(today);
       
-      // 5. Buscar divergências por loja - CORREÇÃO: passar arrays em vez de queries
+      // 5. Buscar divergências por loja
       const divergences_by_store = await getStoreDivergences(today, ordersData || [], deliveriesData || []);
       
       setDaySummary({
@@ -335,18 +327,22 @@ export default function AdminDashboard() {
         .select('id')
         .eq('production_date', date);
       
-      const shipmentIds = shipments?.map(s => s.id) || [];
+      const shipmentIds = (shipments || []).map(s => s.id) || [];
       
       // Buscar itens de pedidos por tipo
-      const { data: orderItems, error: orderError } = shipmentIds.length > 0 ? await supabase
-        .from('production_items')
-        .select(`
-          quantity,
-          salad_types!inner (id, name)
-        `)
-        .in('shipment_id', shipmentIds) : { data: null, error: null };
-      
-      if (orderError) throw orderError;
+      let orderItems: any[] = [];
+      if (shipmentIds.length > 0) {
+        const { data: items, error } = await supabase
+          .from('production_items')
+          .select(`
+            quantity,
+            salad_types!inner (id, name)
+          `)
+          .in('shipment_id', shipmentIds);
+        
+        if (error) throw error;
+        orderItems = items || [];
+      }
       
       // Buscar IDs dos deliveries para esta data
       const { data: deliveries } = await supabase
@@ -354,18 +350,22 @@ export default function AdminDashboard() {
         .select('id')
         .eq('production_date', date);
       
-      const deliveryIds = deliveries?.map(d => d.id) || [];
+      const deliveryIds = (deliveries || []).map(d => d.id) || [];
       
       // Buscar itens de envios por tipo
-      const { data: deliveryItems, error: deliveryError } = deliveryIds.length > 0 ? await supabase
-        .from('delivery_items')
-        .select(`
-          quantity,
-          salad_types!inner (id, name)
-        `)
-        .in('delivery_id', deliveryIds) : { data: null, error: null };
-      
-      if (deliveryError) throw deliveryError;
+      let deliveryItems: any[] = [];
+      if (deliveryIds.length > 0) {
+        const { data: items, error } = await supabase
+          .from('delivery_items')
+          .select(`
+            quantity,
+            salad_types!inner (id, name)
+          `)
+          .in('delivery_id', deliveryIds);
+        
+        if (error) throw error;
+        deliveryItems = items || [];
+      }
       
       // Agrupar por tipo de salada
       const saladMap = new Map<string, {
@@ -377,7 +377,7 @@ export default function AdminDashboard() {
       }>();
       
       // Processar pedidos
-      orderItems?.forEach(item => {
+      orderItems.forEach(item => {
         const saladId = item.salad_types.id;
         const saladName = item.salad_types.name;
         
@@ -397,7 +397,7 @@ export default function AdminDashboard() {
       });
       
       // Processar envios
-      deliveryItems?.forEach(item => {
+      deliveryItems.forEach(item => {
         const saladId = item.salad_types.id;
         const saladName = item.salad_types.name;
         
@@ -461,18 +461,22 @@ export default function AdminDashboard() {
         
         if (deliveriesError) continue;
         
-        const deliveryIds = storeDeliveries?.map(d => d.id) || [];
+        const deliveryIds = (storeDeliveries || []).map(d => d.id) || [];
         
         // Buscar itens enviados
-        const { data: deliveryItems, error: deliveryItemsError } = deliveryIds.length > 0 ? await supabase
-          .from('delivery_items')
-          .select(`
-            quantity,
-            salad_types!inner (name)
-          `)
-          .in('delivery_id', deliveryIds) : { data: null, error: null };
-        
-        if (deliveryItemsError) continue;
+        let deliveryItems: any[] = [];
+        if (deliveryIds.length > 0) {
+          const { data: items, error: deliveryItemsError } = await supabase
+            .from('delivery_items')
+            .select(`
+              quantity,
+              salad_types!inner (name)
+            `)
+            .in('delivery_id', deliveryIds);
+          
+          if (deliveryItemsError) continue;
+          deliveryItems = items || [];
+        }
         
         // Comparar por tipo de salada
         if (orderItems) {
@@ -481,7 +485,7 @@ export default function AdminDashboard() {
             const requested = orderItem.quantity;
             
             // Encontrar quanto foi enviado deste tipo
-            const sentItem = deliveryItems?.find(di => di.salad_types.name === saladType);
+            const sentItem = deliveryItems.find(di => di.salad_types.name === saladType);
             const sent = sentItem?.quantity || 0;
             
             const difference = sent - requested;
@@ -542,14 +546,14 @@ export default function AdminDashboard() {
       if (error) throw error;
       
       // Processar dados para o formato esperado
-      const total_lost = losses?.reduce((sum, loss) => sum + loss.total_items, 0) || 0;
-      const total_value = losses?.reduce((sum, loss) => sum + loss.total_value, 0) || 0;
+      const total_lost = (losses || []).reduce((sum, loss) => sum + loss.total_items, 0) || 0;
+      const total_value = (losses || []).reduce((sum, loss) => sum + loss.total_value, 0) || 0;
       
       // Agrupar perdas por loja
       const losses_by_store: any[] = [];
       const storeMap = new Map();
       
-      losses?.forEach(loss => {
+      (losses || []).forEach((loss: any) => {
         if (storeMap.has(loss.store_id)) {
           const existing = storeMap.get(loss.store_id);
           existing.quantity += loss.total_items;
@@ -571,8 +575,8 @@ export default function AdminDashboard() {
       const losses_by_reason: any[] = [];
       const reasonMap = new Map();
       
-      losses?.forEach(loss => {
-        loss.loss_items?.forEach((item: any) => {
+      (losses || []).forEach((loss: any) => {
+        (loss.loss_items || []).forEach((item: any) => {
           if (reasonMap.has(item.reason)) {
             reasonMap.set(item.reason, reasonMap.get(item.reason) + item.quantity);
           } else {
@@ -587,8 +591,8 @@ export default function AdminDashboard() {
       
       // Lista detalhada
       const detailed_losses: any[] = [];
-      losses?.forEach(loss => {
-        loss.loss_items?.forEach((item: any) => {
+      (losses || []).forEach((loss: any) => {
+        (loss.loss_items || []).forEach((item: any) => {
           detailed_losses.push({
             store_name: loss.stores.name,
             salad_type: item.salad_types?.name || 'Salada',
@@ -616,7 +620,7 @@ export default function AdminDashboard() {
   };
 
   // ========== FUNÇÃO AUXILIAR: Calcular valor das perdas ==========
-  const _calculateLossValue = async (date: string): Promise<number> => {
+  const calculateLossValue = async (date: string): Promise<number> => {
     try {
       const { data: losses } = await supabase
         .from('losses')
@@ -624,7 +628,7 @@ export default function AdminDashboard() {
         .eq('loss_date', date)
         .eq('status', 'completed');
       
-      return losses?.reduce((sum, loss) => sum + loss.total_value, 0) || 0;
+      return (losses || []).reduce((sum, loss) => sum + loss.total_value, 0) || 0;
     } catch (error) {
       console.error('Erro ao calcular valor das perdas:', error);
       return 0;
@@ -659,8 +663,8 @@ export default function AdminDashboard() {
         
         if (deliveriesError) throw deliveriesError;
         
-        const sent = deliveries?.reduce((sum, d) => sum + d.total_items, 0) || 0;
-        const estimated_sales = deliveries?.reduce((sum, d) => sum + d.total_value, 0) || 0;
+        const sent = (deliveries || []).reduce((sum, d) => sum + d.total_items, 0) || 0;
+        const estimated_sales = (deliveries || []).reduce((sum, d) => sum + d.total_value, 0) || 0;
         
         // Buscar perdas desta loja no período
         const { data: losses, error: lossesError } = await supabase
@@ -673,7 +677,7 @@ export default function AdminDashboard() {
         
         if (lossesError) throw lossesError;
         
-        const lost = losses?.reduce((sum, l) => sum + l.total_items, 0) || 0;
+        const lost = (losses || []).reduce((sum, l) => sum + l.total_items, 0) || 0;
         
         // Calcular eficiência
         const efficiency = sent > 0 ? Math.round(((sent - lost) / sent) * 100) : 0;
@@ -700,8 +704,6 @@ export default function AdminDashboard() {
   const loadBatchLossReport = async () => {
     try {
       // Buscar perdas agrupadas por lote
-      // Note: A função RPC 'get_batch_loss_report' pode não existir
-      // Vamos fazer uma consulta alternativa
       const { data: batchLosses, error } = await supabase
         .from('loss_items')
         .select(`
@@ -715,7 +717,6 @@ export default function AdminDashboard() {
       
       if (error) {
         console.warn('Erro ao buscar perdas por lote:', error);
-        // Criar dados de exemplo se a função RPC não existir
         setBatchLossReport([]);
         return;
       }
@@ -723,7 +724,7 @@ export default function AdminDashboard() {
       // Agrupar por lote manualmente
       const groupedData: { [key: string]: BatchLossReport } = {};
       
-      batchLosses?.forEach((item: any) => {
+      (batchLosses || []).forEach((item: any) => {
         const batch = item.batch_number;
         if (!groupedData[batch]) {
           groupedData[batch] = {
@@ -793,7 +794,7 @@ export default function AdminDashboard() {
         
         if (ordersError) throw ordersError;
         
-        const requested = orders?.reduce((sum, order) => sum + order.total_items, 0) || 0;
+        const requested = (orders || []).reduce((sum, order) => sum + order.total_items, 0) || 0;
         
         // Buscar envios para esta loja no período
         const { data: deliveries, error: deliveriesError } = await supabase
@@ -805,7 +806,7 @@ export default function AdminDashboard() {
         
         if (deliveriesError) throw deliveriesError;
         
-        const sent = deliveries?.reduce((sum, delivery) => sum + delivery.total_items, 0) || 0;
+        const sent = (deliveries || []).reduce((sum, delivery) => sum + delivery.total_items, 0) || 0;
         
         // Calcular eficiência
         const efficiency_rate = requested > 0 ? Math.round((sent / requested) * 100) : 0;
@@ -966,7 +967,7 @@ export default function AdminDashboard() {
       
       // 3. Adicionar logo e cabeçalho
       doc.setFontSize(20);
-      doc.setTextColor(33, 150, 243); // Azul
+      doc.setTextColor(33, 150, 243);
       doc.text('Sunset Saladas', 105, 20, { align: 'center' });
       
       doc.setFontSize(12);
@@ -1000,8 +1001,8 @@ export default function AdminDashboard() {
               ['Saladas Produzidas', daySummary.salads_produced.toString()],
               ['Saladas Enviadas', daySummary.salads_sent.toString()],
               ['Diferença', daySummary.difference.toString()],
-              ['Perdas Registradas', daySummary.total_lost?.toString() || '0'],
-              ['Valor Perdas', `R$ ${daySummary.total_value_lost?.toFixed(2) || '0.00'}`]
+              ['Perdas Registradas', (daySummary.total_lost || 0).toString()],
+              ['Valor Perdas', `R$ ${(daySummary.total_value_lost || 0).toFixed(2)}`]
             ];
   
             // USANDO A FUNÇÃO DO HELPER
@@ -1471,7 +1472,7 @@ export default function AdminDashboard() {
               'Enviadas': daySummary.salads_sent, 
               'Diferença': daySummary.difference,
               'Perdas': daySummary.total_lost || 0,
-              'Valor Perdas': `R$ ${daySummary.total_value_lost?.toFixed(2) || '0.00'}`
+              'Valor Perdas': `R$ ${(daySummary.total_value_lost || 0).toFixed(2)}`
             }
           ];
           await exportToExcel(summaryData, `resumo_dia_${selectedDate}.xlsx`, 'Resumo Geral');
@@ -1497,7 +1498,7 @@ export default function AdminDashboard() {
             'Lote': item.batch_number,
             'Motivo': item.reason,
             'Quantidade': item.quantity,
-            'Valor': `R$ ${item.value?.toFixed(2) || '0.00'}`,
+            'Valor': `R$ ${(item.value || 0).toFixed(2)}`,
             'Data': item.date
           })) || [];
           fileName = `relatorio_perdas_${startDate}_a_${endDate}.xlsx`;
@@ -1548,43 +1549,6 @@ export default function AdminDashboard() {
       case 'corrections-list':
         await exportCorrectionsToExcel();
         break;
-    }
-  };
-
-  // ========== AJUSTES ==========
-  const handleAdjustment = async () => {
-    if (!adjustmentReason.trim()) {
-      alert('Informe o motivo do ajuste!');
-      return;
-    }
-
-    try {
-      const { error } = await supabase
-        .from('admin_adjustments')
-        .insert({
-          adjustment_type: 'manual_adjustment',
-          original_record_id: selectedForAdjustment?.id || '',
-          original_table: selectedReport,
-          changed_fields: JSON.stringify({ details: adjustmentDetails }),
-          adjustment_reason: adjustmentReason,
-          adjusted_by: userDbId,
-          ip_address: 'web',
-          user_agent: navigator.userAgent
-        });
-
-      if (error) throw error;
-
-      alert('✅ Ajuste registrado com sucesso!');
-      setShowAdjustmentModal(false);
-      setAdjustmentReason('');
-      setAdjustmentDetails('');
-      setSelectedForAdjustment(null);
-
-      await loadAuditLog();
-
-    } catch (error: any) {
-      console.error('Erro ao registrar ajuste:', error);
-      alert(`Erro: ${error.message}`);
     }
   };
 
@@ -2081,7 +2045,7 @@ export default function AdminDashboard() {
                           fontWeight: 'bold',
                           color: '#FF9800'
                         }}>
-                          R$ {daySummary.total_value_lost?.toFixed(2) || '0.00'}
+                          R$ {(daySummary.total_value_lost || 0).toFixed(2)}
                         </div>
                       </div>
                     </div>
@@ -2735,160 +2699,6 @@ export default function AdminDashboard() {
               )}
             </div>
           )}
-
-          {/* ========== MODAL DE AJUSTE ========== */}
-          {showAdjustmentModal && (
-            <div style={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              backgroundColor: 'rgba(0,0,0,0.7)',
-              display: 'flex',
-              justifyContent: 'center',
-              alignItems: 'center',
-              zIndex: 1000,
-              padding: '20px'
-            }}>
-              <div style={{
-                backgroundColor: 'white',
-                borderRadius: '20px',
-                padding: '40px',
-                width: '100%',
-                maxWidth: '600px',
-                maxHeight: '90vh',
-                overflowY: 'auto'
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
-                  <h2 style={{ margin: 0, fontSize: '24px', color: '#2196F3' }}>🔧 Registrar Ajuste</h2>
-                  <button
-                    onClick={() => {
-                      setShowAdjustmentModal(false);
-                      setAdjustmentReason('');
-                      setAdjustmentDetails('');
-                      setSelectedForAdjustment(null);
-                    }}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      fontSize: '24px',
-                      cursor: 'pointer',
-                      color: '#666'
-                    }}
-                  >
-                    ✕
-                  </button>
-                </div>
-
-                <div style={{ marginBottom: '25px' }}>
-                  <div style={{ fontSize: '16px', fontWeight: 'bold', marginBottom: '10px', color: '#333' }}>
-                    Registro selecionado:
-                  </div>
-                  <div style={{ 
-                    padding: '15px', 
-                    backgroundColor: '#f5f5f5', 
-                    borderRadius: '8px',
-                    fontSize: '14px'
-                  }}>
-                    {selectedForAdjustment?.store_name && `Loja: ${selectedForAdjustment.store_name}`}
-                    {selectedForAdjustment?.periodo_formatado && ` | Período: ${selectedForAdjustment.periodo_formatado}`}
-                    {selectedForAdjustment?.batch_number && ` | Lote: ${selectedForAdjustment.batch_number}`}
-                  </div>
-                </div>
-
-                <div style={{ marginBottom: '20px' }}>
-                  <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold', color: '#555' }}>
-                    Motivo do Ajuste *
-                  </label>
-                  <select
-                    value={adjustmentReason}
-                    onChange={(e) => setAdjustmentReason(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '12px',
-                      border: '2px solid #ddd',
-                      borderRadius: '8px',
-                      fontSize: '16px'
-                    }}
-                  >
-                    <option value="">Selecione um motivo</option>
-                    <option value="loja_esqueceu">Loja esqueceu de informar perda</option>
-                    <option value="erro_sistema">Erro no sistema</option>
-                    <option value="dados_incorretos">Dados informados incorretamente</option>
-                    <option value="ajuste_contabil">Ajuste contábil</option>
-                    <option value="outro">Outro motivo</option>
-                  </select>
-                </div>
-
-                <div style={{ marginBottom: '20px' }}>
-                  <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold', color: '#555' }}>
-                    Detalhes do Ajuste
-                  </label>
-                  <textarea
-                    value={adjustmentDetails}
-                    onChange={(e) => setAdjustmentDetails(e.target.value)}
-                    placeholder="Descreva os detalhes do ajuste..."
-                    style={{
-                      width: '100%',
-                      padding: '12px',
-                      border: '2px solid #ddd',
-                      borderRadius: '8px',
-                      fontSize: '16px',
-                      minHeight: '100px',
-                      resize: 'vertical'
-                    }}
-                  />
-                </div>
-
-                <div style={{ fontSize: '14px', color: '#666', marginBottom: '25px', padding: '15px', backgroundColor: '#FFF3E0', borderRadius: '8px' }}>
-                  ⚠️ Este ajuste será registrado no histórico de auditoria com data, hora e seu usuário.
-                </div>
-
-                <div style={{ display: 'flex', gap: '15px' }}>
-                  <button
-                    onClick={() => {
-                      setShowAdjustmentModal(false);
-                      setAdjustmentReason('');
-                      setAdjustmentDetails('');
-                      setSelectedForAdjustment(null);
-                    }}
-                    style={{
-                      flex: 1,
-                      padding: '15px',
-                      backgroundColor: '#f5f5f5',
-                      color: '#666',
-                      border: 'none',
-                      borderRadius: '10px',
-                      fontSize: '16px',
-                      fontWeight: 'bold',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    onClick={handleAdjustment}
-                    disabled={!adjustmentReason}
-                    style={{
-                      flex: 2,
-                      padding: '15px',
-                      backgroundColor: !adjustmentReason ? '#ccc' : '#2196F3',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '10px',
-                      fontSize: '16px',
-                      fontWeight: 'bold',
-                      cursor: !adjustmentReason ? 'not-allowed' : 'pointer'
-                    }}
-                  >
-                    ✅ Registrar Ajuste
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
         </div>
       </main>
     </div>
