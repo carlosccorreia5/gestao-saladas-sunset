@@ -1,8 +1,8 @@
-// src/components/production/ProductionDashboard.tsx - VERSÃO COMPLETA E CORRIGIDA
+// src/components/production/ProductionDashboard.tsx - VERSÃO CORRIGIDA
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import Header from '../common/Header';
-import { getSaladTypes } from '../../data/saladTypes'; // Removido generateSequenceNumber pois não é usado
+import { getSaladTypes } from '../../data/saladTypes';
 
 // Interfaces
 interface SaladType {
@@ -66,6 +66,16 @@ interface TodayDelivery {
   }>;
 }
 
+// Função auxiliar para gerar número de sequência
+const generateSequenceNumber = () => {
+  return Math.floor(1000 + Math.random() * 9000);
+};
+
+// Função auxiliar para validar número de lote
+const validateBatchNumber = (batchNumber: string): boolean => {
+  return batchNumber.length > 0 && batchNumber.includes('LOTE');
+};
+
 export default function ProductionDashboard() {
   const [userEmail, setUserEmail] = useState('');
   const [loading, setLoading] = useState(true);
@@ -125,7 +135,7 @@ export default function ProductionDashboard() {
         setSelectedSaladType(saladTypesData[0].id);
       }
       
-      // 4. Buscar lojas - CORREÇÃO: Extrair .data e tratar erro
+      // 4. Buscar lojas
       const { data: storesData, error: storesError } = await supabase
         .from('stores')
         .select('id, name')
@@ -220,22 +230,23 @@ export default function ProductionDashboard() {
           continue;
         }
         
-        const shipmentIds = shipments?.map(s => s.id) || [];
+        const shipmentIds = (shipments || []).map(s => s.id) || [];
         
-        // Total solicitado hoje - CORREÇÃO: passar array de IDs em vez de query
-        const { data: requestedData, error: requestedError } = shipmentIds.length > 0 
-          ? await supabase
-              .from('production_items')
-              .select('quantity')
-              .eq('salad_type_id', salad.id)
-              .in('shipment_id', shipmentIds)
-          : { data: null, error: null };
-        
-        if (requestedError) {
-          console.error('Erro ao buscar itens solicitados:', requestedError);
+        // Total solicitado hoje
+        let totalRequested = 0;
+        if (shipmentIds.length > 0) {
+          const { data: requestedData, error: requestedError } = await supabase
+            .from('production_items')
+            .select('quantity')
+            .eq('salad_type_id', salad.id)
+            .in('shipment_id', shipmentIds);
+          
+          if (requestedError) {
+            console.error('Erro ao buscar itens solicitados:', requestedError);
+          } else {
+            totalRequested = (requestedData || []).reduce((sum, item) => sum + item.quantity, 0);
+          }
         }
-        
-        const totalRequested = requestedData?.reduce((sum, item) => sum + item.quantity, 0) || 0;
         
         // Buscar IDs dos deliveries para hoje
         const { data: deliveries, error: deliveriesError } = await supabase
@@ -248,22 +259,23 @@ export default function ProductionDashboard() {
           continue;
         }
         
-        const deliveryIds = deliveries?.map(d => d.id) || [];
+        const deliveryIds = (deliveries || []).map(d => d.id) || [];
         
-        // Total produzido hoje - CORREÇÃO: passar array de IDs em vez de query
-        const { data: producedData, error: producedError } = deliveryIds.length > 0
-          ? await supabase
-              .from('delivery_items')
-              .select('quantity')
-              .eq('salad_type_id', salad.id)
-              .in('delivery_id', deliveryIds)
-          : { data: null, error: null };
-        
-        if (producedError) {
-          console.error('Erro ao buscar itens produzidos:', producedError);
+        // Total produzido hoje
+        let totalProduced = 0;
+        if (deliveryIds.length > 0) {
+          const { data: producedData, error: producedError } = await supabase
+            .from('delivery_items')
+            .select('quantity')
+            .eq('salad_type_id', salad.id)
+            .in('delivery_id', deliveryIds);
+          
+          if (producedError) {
+            console.error('Erro ao buscar itens produzidos:', producedError);
+          } else {
+            totalProduced = (producedData || []).reduce((sum, item) => sum + item.quantity, 0);
+          }
         }
-        
-        const totalProduced = producedData?.reduce((sum, item) => sum + item.quantity, 0) || 0;
         
         summary.push({
           salad_type_id: salad.id,
@@ -341,7 +353,7 @@ export default function ProductionDashboard() {
             total_items: delivery.total_items,
             total_value: delivery.total_value,
             status: delivery.status,
-            delivery_items: items?.map(item => ({
+            delivery_items: (items || []).map(item => ({
               id: item.id,
               salad_type_id: item.salad_type_id,
               salad_name: item.salad_types?.name || 'Salada',
@@ -349,7 +361,7 @@ export default function ProductionDashboard() {
               quantity: item.quantity,
               batch_number: item.batch_number,
               unit_price: item.unit_price
-            })) || []
+            }))
           });
         }
         
@@ -649,24 +661,6 @@ export default function ProductionDashboard() {
       throw error;
     }
   };
-
-  // Validação do formato do lote (removida declaração não usada)
-  // Esta função existe mas não é chamada no código, então o TypeScript reclamou
-  // Mantemos comentada para referência se precisar no futuro
-  /*
-  const _validateBatchNumber = (batch: string) => {
-    if (!batch) return false;
-    
-    // Formato básico: LOTE-YYYYMMDD
-    const pattern = /^LOTE-\d{8}$/;
-    if (!pattern.test(batch)) {
-      alert('❌ Formato do lote inválido! Use: LOTE-AAAAMMDD\nEx: LOTE-20240115');
-      return false;
-    }
-    
-    return true;
-  };
-  */
 
   // ========== RENDERIZAÇÃO ==========
   if (loading) {
